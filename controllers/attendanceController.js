@@ -3,6 +3,7 @@ const getOperatorModel = require('../models/Operator');
 const nodemailer = require('nodemailer');
 const { stringify } = require('csv-stringify/sync');
 const fs = require('fs');
+const ExcelJS = require('exceljs');
 
 exports.getAttendance = async (req, res) => {
   const { line, date } = req.params;
@@ -153,10 +154,11 @@ exports.exportAttendance = async (req, res) => {
       ]);
     });
 
-    const buffer = await workbook.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
-    res.send(buffer);
+
+    await workbook.xlsx.write(res);
+    res.end(); // Important when streaming!
   } catch (error) {
     console.error(`Error exporting attendance for line ${line}:`, error.message);
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });

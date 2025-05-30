@@ -1,6 +1,7 @@
 const getAttendanceModel = require('../models/Attendance');
 const getOperatorModel = require('../models/Operator');
 const nodemailer = require('nodemailer');
+const ExcelJS = require('exceljs');
 
 exports.getAttendance = async (req, res) => {
   const { line, date } = req.params;
@@ -130,14 +131,32 @@ exports.exportAttendance = async (req, res) => {
       path: 'operatorId',
       model: Operator,
     });
-    const data = attendance.map((a) => ({
-      Date: a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
-      'Operator Name': a.operatorId?.name || 'Unknown',
-      'Employee ID': a.operatorId?.employeeId || 'N/A',
-      Station: a.operatorId?.station || 'N/A',
-      Status: a.status,
-    }));
-    res.status(200).json(data);
+
+    // Create a new workbook and worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Attendance');
+
+    // Add header row
+    worksheet.addRow(['Date', 'Operator Name', 'Employee ID', 'Station', 'Status']);
+
+    // Add data rows
+    attendance.forEach((a) => {
+      worksheet.addRow([
+        a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
+        a.operatorId?.name || 'Unknown',
+        a.operatorId?.employeeId || 'N/A',
+        a.operatorId?.station || 'N/A',
+        a.status,
+      ]);
+    });
+
+    // Set response headers for XLSX file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
+
+    // Write workbook to response
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (error) {
     console.error(`Error exporting attendance for line ${line}:`, error.message);
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });

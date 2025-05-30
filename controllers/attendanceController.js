@@ -154,9 +154,9 @@ exports.exportAttendance = async (req, res) => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
 
-    // Write workbook to response
+    // Write workbook to response and end stream properly
     await workbook.xlsx.write(res);
-    res.end();
+    // Do NOT call res.end() here, ExcelJS handles it
   } catch (error) {
     console.error(`Error exporting attendance for line ${line}:`, error.message);
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });

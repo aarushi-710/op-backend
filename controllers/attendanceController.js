@@ -69,25 +69,30 @@ exports.markAttendance = async (req, res) => {
     await newAttendance.save();
 
     const Operator = getOperatorModel(line);
-    const allOperators = await Operator.find({});
-    const todayAttendance = await Attendance.find({ date });
-    const attendedOperatorIds = todayAttendance.map(a => a.operatorId.toString());
-    const allMarked = allOperators.every(op => attendedOperatorIds.includes(op._id.toString()));
+    const todayAttendance = await Attendance.find({ date, status: 'Present' }).populate('operatorId');
+    const validAttendance = todayAttendance.filter(a => a.operatorId && a.operatorId.station); // Exclude records with invalid operatorId or missing station
 
-    console.log(`DEBUG: Total operators: ${allOperators.length}, Attended operators: ${attendedOperatorIds.length}, All marked: ${allMarked}`);
+    // Extract distinct stations
+    const distinctStations = [...new Set(validAttendance.map(a => a.operatorId.station))];
 
-    if (allMarked) {
+    // Debug: Log the attendance records and stations
+    console.log('DEBUG: Attendance records marked as Present:');
+    validAttendance.forEach(a => {
+      console.log(`- Operator: ${a.operatorId?.name || 'Unknown'}, Station: ${a.operatorId?.station || 'N/A'}, Timestamp: ${a.timestamp}`);
+    });
+
+    console.log('DEBUG: Distinct stations with Present attendance:', distinctStations);
+    console.log(`DEBUG: Total distinct stations marked Present: ${distinctStations.length}`);
+
+    if (distinctStations.length === 6) {
       try {
-        console.log('All stations marked, preparing to send attendance email...');
-        const formattedAttendance = await Promise.all(todayAttendance.map(async (a) => {
-          const op = await Operator.findById(a.operatorId);
-          return {
-            operatorName: op?.name || 'Unknown',
-            employeeId: op?.employeeId || 'N/A',
-            station: op?.station || 'N/A',
-            timestamp: a.timestamp,
-            status: a.status,
-          };
+        console.log('6 distinct stations marked Present, preparing to send attendance email...');
+        const formattedAttendance = validAttendance.map(a => ({
+          operatorName: a.operatorId?.name || 'Unknown',
+          employeeId: a.operatorId?.employeeId || 'N/A',
+          station: a.operatorId?.station || 'N/A',
+          timestamp: a.timestamp,
+          status: a.status,
         }));
         await sendAttendanceEmail(formattedAttendance);
         console.log('Attendance email sent successfully');
@@ -95,7 +100,7 @@ exports.markAttendance = async (req, res) => {
         console.error('Error sending attendance email:', err.message);
       }
     } else {
-      console.log(`Email not sent: Only ${attendedOperatorIds.length} of ${allOperators.length} stations marked.`);
+      console.log(`Email not sent: Only ${distinctStations.length} distinct stations marked Present. Need 6 to send email.`);
     }
 
     const populatedAttendance = await Attendance.findById(newAttendance._id).populate({

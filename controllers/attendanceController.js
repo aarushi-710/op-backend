@@ -1,5 +1,6 @@
 const getAttendanceModel = require('../models/Attendance');
 const getOperatorModel = require('../models/Operator');
+const nodemailer = require('nodemailer');
 
 exports.getAttendance = async (req, res) => {
   const { line, date } = req.params;
@@ -67,11 +68,32 @@ exports.markAttendance = async (req, res) => {
     });
     await newAttendance.save();
 
+    // Check if attendance is marked for all stations
+    const Operator = getOperatorModel(line);
+    const allOperators = await Operator.find({});
+    const todayAttendance = await Attendance.find({ date });
+    const attendedOperatorIds = todayAttendance.map(a => a.operatorId.toString());
+    const allMarked = allOperators.every(op => attendedOperatorIds.includes(op._id.toString()));
+
+    if (allMarked) {
+      // Prepare formatted data
+      const formattedAttendance = await Promise.all(todayAttendance.map(async (a) => {
+        const op = await Operator.findById(a.operatorId);
+        return {
+          operatorName: op?.name || 'Unknown',
+          employeeId: op?.employeeId || 'N/A',
+          station: op?.station || 'N/A',
+          timestamp: a.timestamp,
+          status: a.status,
+        };
+      }));
+      await sendAttendanceEmail(formattedAttendance);
+    }
+
     const populatedAttendance = await Attendance.findById(newAttendance._id).populate({
       path: 'operatorId',
       model: getOperatorModel(line),
     });
-
     const formattedAttendance = {
       _id: populatedAttendance._id,
       operatorName: populatedAttendance.operatorId?.name || 'Unknown',
@@ -115,5 +137,36 @@ exports.exportAttendance = async (req, res) => {
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });
   }
 };
+
+async function sendAttendanceEmail(attendanceData) {
+  let transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+      user: 'engg.datanalytics.padget@dixoninfo.com',
+      pass: 'jhjy piwi slyp yxqz'
+    }
+  });
+
+  let html = `<h3>Attendance Data</h3><table border="1"><tr>
+    <th>Operator Name</th><th>Employee ID</th><th>Station</th><th>Timestamp</th><th>Status</th>
+    </tr>`;
+  attendanceData.forEach(a => {
+    html += `<tr>
+      <td>${a.operatorName}</td>
+      <td>${a.employeeId}</td>
+      <td>${a.station}</td>
+      <td>${a.timestamp}</td>
+      <td>${a.status}</td>
+    </tr>`;
+  });
+  html += `</table>`;
+
+  await transporter.sendMail({
+    from: '"Attendance System" <engg.datanalytics.padget@dixoninfo.com>',
+    to: 'btbte21074_aarushi@banasthali.in',
+    subject: 'All Stations Attendance Marked',
+    html: html
+  });
+}
 
 

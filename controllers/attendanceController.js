@@ -1,7 +1,8 @@
 const getAttendanceModel = require('../models/Attendance');
 const getOperatorModel = require('../models/Operator');
 const nodemailer = require('nodemailer');
-const ExcelJS = require('exceljs');
+const { stringify } = require('csv-stringify/sync');
+const fs = require('fs');
 
 exports.getAttendance = async (req, res) => {
   const { line, date } = req.params;
@@ -15,14 +16,13 @@ exports.getAttendance = async (req, res) => {
       model: getOperatorModel(line),
     });
     const formattedAttendance = attendance.map((a) => {
-      // Log the raw attendance document to debug
       console.log('Raw attendance document:', a);
       return {
         _id: a._id,
         operatorName: a.operatorId?.name || 'Unknown',
         employeeId: a.operatorId?.employeeId || 'N/A',
         station: a.operatorId?.station || 'N/A',
-        timestamp: a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(), // Fallback if timestamp is missing
+        timestamp: a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
         status: a.status,
       };
     });
@@ -45,11 +45,10 @@ exports.markAttendance = async (req, res) => {
     if (isNaN(now.getTime())) {
       return res.status(400).json({ message: 'Invalid timestamp provided' });
     }
-    const date = now.toISOString().split('T')[0]; // YYYY-MM-DD for daily filtering
-    const finalTimestamp = now.toISOString(); // Full ISO 8601 timestamp
+    const date = now.toISOString().split('T')[0];
+    const finalTimestamp = now.toISOString();
     console.log('Marking attendance with timestamp:', finalTimestamp);
 
-    // Find the latest attendance for this operator on this date
     const lastAttendance = await Attendance.findOne({ operatorId, date }).sort({ timestamp: -1 });
 
     if (lastAttendance) {
@@ -69,17 +68,17 @@ exports.markAttendance = async (req, res) => {
     });
     await newAttendance.save();
 
-    // Check if attendance is marked for all stations
     const Operator = getOperatorModel(line);
     const allOperators = await Operator.find({});
     const todayAttendance = await Attendance.find({ date });
     const attendedOperatorIds = todayAttendance.map(a => a.operatorId.toString());
     const allMarked = allOperators.every(op => attendedOperatorIds.includes(op._id.toString()));
 
+    console.log(`DEBUG: Total operators: ${allOperators.length}, Attended operators: ${attendedOperatorIds.length}, All marked: ${allMarked}`);
+
     if (allMarked) {
       try {
-        console.log('All stations marked, sending attendance email...');
-        // Prepare formatted data
+        console.log('All stations marked, preparing to send attendance email...');
         const formattedAttendance = await Promise.all(todayAttendance.map(async (a) => {
           const op = await Operator.findById(a.operatorId);
           return {
@@ -91,10 +90,12 @@ exports.markAttendance = async (req, res) => {
           };
         }));
         await sendAttendanceEmail(formattedAttendance);
-        console.log('Attendance email sent!');
+        console.log('Attendance email sent successfully');
       } catch (err) {
-        console.error('Error sending attendance email:', err);
+        console.error('Error sending attendance email:', err.message);
       }
+    } else {
+      console.log(`Email not sent: Only ${attendedOperatorIds.length} of ${allOperators.length} stations marked.`);
     }
 
     const populatedAttendance = await Attendance.findById(newAttendance._id).populate({
@@ -111,7 +112,7 @@ exports.markAttendance = async (req, res) => {
     };
     res.status(201).json(formattedAttendance);
   } catch (error) {
-    console.error('Error marking attendance:', error);
+    console.error('Error marking attendance:', error.message);
     res.status(500).json({ message: 'Error marking attendance', error: error.message });
   }
 };
@@ -132,14 +133,11 @@ exports.exportAttendance = async (req, res) => {
       model: Operator,
     });
 
-    // Create a new workbook and worksheet
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Attendance');
 
-    // Add header row
     worksheet.addRow(['Date', 'Operator Name', 'Employee ID', 'Station', 'Status']);
 
-    // Add data rows
     attendance.forEach((a) => {
       worksheet.addRow([
         a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
@@ -150,7 +148,6 @@ exports.exportAttendance = async (req, res) => {
       ]);
     });
 
-    // Set response headers for XLSX file
     const buffer = await workbook.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
@@ -162,34 +159,59 @@ exports.exportAttendance = async (req, res) => {
 };
 
 async function sendAttendanceEmail(attendanceData) {
-  let transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: 'engg.datanalytics.padget@dixoninfo.com',
-      pass: 'jhjy piwi slyp yxqz'
+  console.log('DEBUG: Preparing to send email with attendance data:', attendanceData);
+
+  const csvFilePath = 'attendance_data.csv';
+  try {
+    const csvContent = stringify(attendanceData, {
+      header: true,
+      columns: [
+        { key: 'operatorName', header: 'Operator Name' },
+        { key: 'employeeId', header: 'Employee ID' },
+        { key: 'station', header: 'Station' },
+        { key: 'timestamp', header: 'Timestamp' },
+        { key: 'status', header: 'Status' }
+      ]
+    });
+
+    console.log('DEBUG: Writing CSV file to', csvFilePath);
+    fs.writeFileSync(csvFilePath, csvContent);
+    console.log('DEBUG: CSV file created successfully');
+
+    let transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: 'engg.datanalytics.padget@dixoninfo.com',
+        pass: process.env.SMTP_PASSWORD || 'jhjy piwi slyp yxqz'
+      }
+    });
+
+    let mailOptions = {
+      from: '"Attendance System" <engg.datanalytics.padget@dixoninfo.com>',
+      to: 'btbte21074_aarushi@banasthali.in',
+      subject: 'Key part 3 operators working today for line1',
+      text: 'Please find attached the attendance data for Line 1.',
+      attachments: [
+        {
+          filename: 'attendance_data.csv',
+          path: csvFilePath
+        }
+      ]
+    };
+
+    console.log('DEBUG: Sending email to', mailOptions.to);
+    await transporter.sendMail(mailOptions);
+    console.log('DEBUG: Attendance email with CSV attachment sent successfully');
+  } catch (error) {
+    console.error('DEBUG: Failed to send attendance email:', error.message);
+    throw error;
+  } finally {
+    if (fs.existsSync(csvFilePath)) {
+      console.log('DEBUG: Cleaning up CSV file:', csvFilePath);
+      fs.unlinkSync(csvFilePath);
+      console.log('DEBUG: CSV file deleted successfully');
+    } else {
+      console.log('DEBUG: No CSV file to clean up');
     }
-  });
-
-  let html = `<h3>Attendance Data</h3><table border="1"><tr>
-    <th>Operator Name</th><th>Employee ID</th><th>Station</th><th>Timestamp</th><th>Status</th>
-    </tr>`;
-  attendanceData.forEach(a => {
-    html += `<tr>
-      <td>${a.operatorName}</td>
-      <td>${a.employeeId}</td>
-      <td>${a.station}</td>
-      <td>${a.timestamp}</td>
-      <td>${a.status}</td>
-    </tr>`;
-  });
-  html += `</table>`;
-
-  await transporter.sendMail({
-    from: '"Attendance System" <engg.datanalytics.padget@dixoninfo.com>',
-    to: 'btbte21074_aarushi@banasthali.in',
-    subject: 'All Stations Attendance Marked',
-    html: html
-  });
+  }
 }
-
-

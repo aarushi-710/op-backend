@@ -3,7 +3,6 @@ const getOperatorModel = require('../models/Operator');
 const nodemailer = require('nodemailer');
 const { stringify } = require('csv-stringify/sync');
 const fs = require('fs');
-const ExcelJS = require('exceljs');
 
 exports.getAttendance = async (req, res) => {
   const { line, date } = req.params;
@@ -70,30 +69,25 @@ exports.markAttendance = async (req, res) => {
     await newAttendance.save();
 
     const Operator = getOperatorModel(line);
-    const todayAttendance = await Attendance.find({ date, status: 'Present' }).populate('operatorId');
-    const validAttendance = todayAttendance.filter(a => a.operatorId && a.operatorId.station); // Exclude records with invalid operatorId or missing station
+    const allOperators = await Operator.find({});
+    const todayAttendance = await Attendance.find({ date });
+    const attendedOperatorIds = todayAttendance.map(a => a.operatorId.toString());
+    const allMarked = allOperators.every(op => attendedOperatorIds.includes(op._id.toString()));
 
-    // Extract distinct stations
-    const distinctStations = [...new Set(validAttendance.map(a => a.operatorId.station))];
+    console.log(`DEBUG: Total operators: ${allOperators.length}, Attended operators: ${attendedOperatorIds.length}, All marked: ${allMarked}`);
 
-    // Debug: Log the attendance records and stations
-    console.log('DEBUG: Attendance records marked as Present:');
-    validAttendance.forEach(a => {
-      console.log(`- Operator: ${a.operatorId?.name || 'Unknown'}, Station: ${a.operatorId?.station || 'N/A'}, Timestamp: ${a.timestamp}`);
-    });
-
-    console.log('DEBUG: Distinct stations with Present attendance:', distinctStations);
-    console.log(`DEBUG: Total distinct stations marked Present: ${distinctStations.length}`);
-
-    if (distinctStations.length === 6) {
+    if (allMarked) {
       try {
-        console.log('6 distinct stations marked Present, preparing to send attendance email...');
-        const formattedAttendance = validAttendance.map(a => ({
-          operatorName: a.operatorId?.name || 'Unknown',
-          employeeId: a.operatorId?.employeeId || 'N/A',
-          station: a.operatorId?.station || 'N/A',
-          timestamp: a.timestamp,
-          status: a.status,
+        console.log('All stations marked, preparing to send attendance email...');
+        const formattedAttendance = await Promise.all(todayAttendance.map(async (a) => {
+          const op = await Operator.findById(a.operatorId);
+          return {
+            operatorName: op?.name || 'Unknown',
+            employeeId: op?.employeeId || 'N/A',
+            station: op?.station || 'N/A',
+            timestamp: a.timestamp,
+            status: a.status,
+          };
         }));
         await sendAttendanceEmail(formattedAttendance);
         console.log('Attendance email sent successfully');
@@ -101,7 +95,7 @@ exports.markAttendance = async (req, res) => {
         console.error('Error sending attendance email:', err.message);
       }
     } else {
-      console.log(`Email not sent: Only ${distinctStations.length} distinct stations marked Present. Need 6 to send email.`);
+      console.log(`Email not sent: Only ${attendedOperatorIds.length} of ${allOperators.length} stations marked.`);
     }
 
     const populatedAttendance = await Attendance.findById(newAttendance._id).populate({
@@ -154,11 +148,10 @@ exports.exportAttendance = async (req, res) => {
       ]);
     });
 
+    const buffer = await workbook.xlsx.writeBuffer();
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
-
-    await workbook.xlsx.write(res);
-    res.end(); // Important when streaming!
+    res.send(buffer);
   } catch (error) {
     console.error(`Error exporting attendance for line ${line}:`, error.message);
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });
@@ -222,3 +215,10 @@ async function sendAttendanceEmail(attendanceData) {
     }
   }
 }
+
+module.exports = {
+  getAttendance,
+  markAttendance,
+  exportAttendance,
+  sendAttendanceEmail
+};

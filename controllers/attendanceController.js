@@ -194,9 +194,31 @@ async function sendAttendanceEmail(attendanceData) {
   }
 }
 
+exports.sendAttendanceNow = async (req, res) => {
+  try {
+    const line = req.query.line || 'line1';
+    const Attendance = getAttendanceModel(line);
+    const today = new Date();
+    const date = today.toISOString().split('T')[0];
+    const todayAttendance = await Attendance.find({ date }).populate('operatorId');
+    const formattedAttendance = todayAttendance.map(a => ({
+      operatorName: a.operatorId?.name || 'Unknown',
+      employeeId: a.operatorId?.employeeId || 'N/A',
+      station: a.operatorId?.station || 'N/A',
+      timestamp: a.timestamp,
+      status: a.status,
+    }));
+    await sendAttendanceEmail(formattedAttendance);
+    res.json({ message: 'Attendance email sent!' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to send attendance email', error: err.message });
+  }
+};
+
 module.exports = {
   getAttendance,
   markAttendance,
   exportAttendance,
-  sendAttendanceEmail
+  sendAttendanceEmail,
+  sendAttendanceNow
 };

@@ -110,26 +110,14 @@ exports.exportAttendance = async (req, res) => {
       path: 'operatorId',
       model: Operator,
     });
-
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Attendance');
-
-    worksheet.addRow(['Date', 'Operator Name', 'Employee ID', 'Station', 'Status']);
-
-    attendance.forEach((a) => {
-      worksheet.addRow([
-        a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
-        a.operatorId?.name || 'Unknown',
-        a.operatorId?.employeeId || 'N/A',
-        a.operatorId?.station || 'N/A',
-        a.status,
-      ]);
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=attendance_${line}_${from}_to_${to}.xlsx`);
-    res.send(buffer);
+    const data = attendance.map((a) => ({
+      Date: a.timestamp || new Date(a.date + 'T00:00:00.000Z').toISOString(),
+      'Operator Name': a.operatorId?.name || 'Unknown',
+      'Employee ID': a.operatorId?.employeeId || 'N/A',
+      Station: a.operatorId?.station || 'N/A',
+      Status: a.status,
+    }));
+    res.status(200).json(data);
   } catch (error) {
     console.error(`Error exporting attendance for line ${line}:`, error.message);
     res.status(500).json({ message: 'Failed to export attendance', error: error.message });
@@ -196,6 +184,7 @@ async function sendAttendanceEmail(attendanceData) {
 
 exports.sendAttendanceNow = async (req, res) => {
   try {
+    console.log('DEBUG: /send-attendance endpoint hit');
     const line = req.query.line || 'line1';
     const Attendance = getAttendanceModel(line);
     const today = new Date();
@@ -211,6 +200,7 @@ exports.sendAttendanceNow = async (req, res) => {
     await sendAttendanceEmail(formattedAttendance);
     res.json({ message: 'Attendance email sent!' });
   } catch (err) {
+    console.error('DEBUG: Error in sendAttendanceNow:', err);
     res.status(500).json({ message: 'Failed to send attendance email', error: err.message });
   }
 };

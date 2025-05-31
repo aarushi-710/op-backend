@@ -26,8 +26,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/operators', operatorRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Schedule to run at 9:30 AM every day
-cron.schedule('30 9 * * *', async () => {
+// Schedule to run at 6:50 AM every day
+cron.schedule('50 6 * * *', async () => {
   try {
     const line = 'line1'; // or loop through all lines if needed
     const Attendance = getAttendanceModel(line);
@@ -44,9 +44,9 @@ cron.schedule('30 9 * * *', async () => {
     }));
     if (formattedAttendance.length > 0) {
       await sendAttendanceEmail(formattedAttendance);
-      console.log('Attendance email sent automatically at 9:30 AM');
+      console.log('Attendance email sent automatically at 6:50 AM');
     } else {
-      console.log('No attendance records to send at 9:30 AM');
+      console.log('No attendance records to send at 6:50 AM');
     }
   } catch (err) {
     console.error('Error sending scheduled attendance email:', err.message);

@@ -26,28 +26,24 @@ app.use('/api/auth', authRoutes);
 app.use('/api/operators', operatorRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Schedule to run at 6:50 AM every day
-cron.schedule('50 6 * * *', async () => {
+// Schedule to run at 7:00 AM every day
+cron.schedule('2 7 * * *', async () => {
   try {
-    const line = 'line1'; // or loop through all lines if needed
+    const line = 'line1'; // Change as needed
     const Attendance = getAttendanceModel(line);
+    const Operator = getOperatorModel(line);
     const today = new Date();
     const date = today.toISOString().split('T')[0];
-    const todayAttendance = await Attendance.find({ date, status: 'Present' }).populate('operatorId');
-    const validAttendance = todayAttendance.filter(a => a.operatorId && a.operatorId.station);
-    const formattedAttendance = validAttendance.map(a => ({
+    const todayAttendance = await Attendance.find({ date }).populate('operatorId');
+    const formattedAttendance = todayAttendance.map(a => ({
       operatorName: a.operatorId?.name || 'Unknown',
       employeeId: a.operatorId?.employeeId || 'N/A',
       station: a.operatorId?.station || 'N/A',
       timestamp: a.timestamp,
       status: a.status,
     }));
-    if (formattedAttendance.length > 0) {
-      await sendAttendanceEmail(formattedAttendance);
-      console.log('Attendance email sent automatically at 6:50 AM');
-    } else {
-      console.log('No attendance records to send at 6:50 AM');
-    }
+    await sendAttendanceEmail(formattedAttendance);
+    console.log('Attendance email sent automatically at 7:00 AM');
   } catch (err) {
     console.error('Error sending scheduled attendance email:', err.message);
   }

@@ -76,28 +76,6 @@ exports.markAttendance = async (req, res) => {
 
     console.log(`DEBUG: Total operators: ${allOperators.length}, Attended operators: ${attendedOperatorIds.length}, All marked: ${allMarked}`);
 
-    if (allMarked) {
-      try {
-        console.log('All stations marked, preparing to send attendance email...');
-        const formattedAttendance = await Promise.all(todayAttendance.map(async (a) => {
-          const op = await Operator.findById(a.operatorId);
-          return {
-            operatorName: op?.name || 'Unknown',
-            employeeId: op?.employeeId || 'N/A',
-            station: op?.station || 'N/A',
-            timestamp: a.timestamp,
-            status: a.status,
-          };
-        }));
-        await sendAttendanceEmail(formattedAttendance);
-        console.log('Attendance email sent successfully');
-      } catch (err) {
-        console.error('Error sending attendance email:', err.message);
-      }
-    } else {
-      console.log(`Email not sent: Only ${attendedOperatorIds.length} of ${allOperators.length} stations marked.`);
-    }
-
     const populatedAttendance = await Attendance.findById(newAttendance._id).populate({
       path: 'operatorId',
       model: getOperatorModel(line),
